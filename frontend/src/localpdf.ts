@@ -28,3 +28,11 @@ export async function sha256(blob: Blob): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer())
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
+
+export const deleteAllPdfs = () =>
+  new Promise<void>((resolve, reject) => {
+    const req = indexedDB.deleteDatabase(DB)
+    req.onsuccess = () => resolve()
+    req.onerror = () => reject(req.error)
+    req.onblocked = () => resolve()
+  })

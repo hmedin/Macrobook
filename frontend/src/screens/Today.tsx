@@ -286,6 +286,23 @@ export default function Today({ profile }: { profile: any }) {
                   <button className="link" aria-label="Remove" onClick={() => api(`/exercise/${x.id}`, { method: 'DELETE' }).then(load)}>✕</button>
                 </div>
               ))}
+              <details className="how">
+                <summary>How are these calories estimated?</summary>
+                <p className="note">
+                  We estimate the calories burned <b>above what you’d burn at rest</b>, using your most recent logged weight.
+                </p>
+                <ul className="note">
+                  <li><b>Running</b> with a distance: about 1 kcal per kg per km (roughly 0.63 per lb per mile). A 3-mile run at 147 lb is about 320 kcal.</li>
+                  <li><b>Walking</b> with a distance: about half that.</li>
+                  <li><b>With only a time:</b> typical effort levels are used (running about 8 METs, walking 2.5, cycling and swimming 5, HIIT 7, strength training 3).</li>
+                </ul>
+                <p className="note">
+                  Real burn changes with pace, hills, and fitness, so treat it as roughly ±20–30%. If your watch or machine
+                  gives a number, type it into “Calories burned” to override the estimate. Whether any of it raises your daily
+                  goal is controlled by “Eat back exercise calories” in Profile (none, half, or all), and adaptive goals already
+                  account for your usual exercise.
+                </p>
+              </details>
               <form onSubmit={addExercise}>
                 <select value={ex.type} onChange={(e) => setEx({ ...ex, type: e.target.value })}>
                   {KINDS.map((k) => <option key={k}>{k}</option>)}

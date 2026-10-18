@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../lib'
+import { LegalLinks } from '../DangerZone'
 
 const GoogleIcon = () => (
   <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
@@ -57,6 +58,7 @@ export default function Login() {
           {mode === 'in' ? 'Need an account? Sign up' : 'Have an account? Sign in'}
         </button>
         {msg && <p className="note">{msg}</p>}
+        <LegalLinks />
       </form>
     </div>
   )

@@ -8,6 +8,7 @@ import Weight from './screens/Weight'
 import Books from './screens/Books'
 import Goals from './screens/Goals'
 import InstallHelp from './InstallHelp'
+import DangerZone, { LegalLinks } from './DangerZone'
 import { ICONS } from './components'
 import './App.css'
 
@@ -50,6 +51,8 @@ export default function App() {
             <Setup existing={profile} onDone={() => api('/profile').then(setProfile)}>
               <button className="link" onClick={() => supabase.auth.signOut()}>Sign out</button>
             </Setup>
+            <DangerZone />
+            <LegalLinks />
           </>
         )}
       </main>
