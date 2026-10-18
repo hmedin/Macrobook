@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from './lib'
-import { getPdf, savePdf, sha256 } from './localpdf'
+import { cachePages, getPageImage, getPdf, sha256 } from './localpdf'
 import PdfPage from './PdfPage'
 
 // First-use check for a parsed recipe: original page beside what we read.
@@ -10,7 +10,10 @@ export default function VerifyModal({ food, onDone, onCancel }: {
   onDone: (food: any) => void
   onCancel: () => void
 }) {
-  const [blob, setBlob] = useState<Blob | null | undefined>(undefined)
+  // Small page image (preferred) or a legacy whole-PDF copy; null = not on this device.
+  const [img, setImg] = useState<string | null | undefined>(undefined)
+  const [legacy, setLegacy] = useState<Blob | null>(null)
+  const [progress, setProgress] = useState('')
   const [v, setV] = useState({
     calories: String(Math.round(food.calories)), protein_g: String(Math.round(food.protein_g)),
     carbs_g: String(Math.round(food.carbs_g)), fat_g: String(Math.round(food.fat_g)),
@@ -18,7 +21,18 @@ export default function VerifyModal({ food, onDone, onCancel }: {
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
 
-  useEffect(() => { getPdf(food.file_hash).then((b) => setBlob(b ?? null)).catch(() => setBlob(null)) }, [food.file_hash])
+  async function loadOrigin() {
+    const page = await getPageImage(food.file_hash, food.source_page).catch(() => undefined)
+    if (page) { setImg(URL.createObjectURL(page)); return }
+    const pdf = await getPdf(food.file_hash).catch(() => undefined)
+    if (pdf) { setLegacy(pdf); setImg(null); return }
+    setImg(null)
+  }
+  useEffect(() => {
+    loadOrigin()
+    return () => { setImg((u) => { if (u) URL.revokeObjectURL(u); return u }) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [food.file_hash, food.source_page])
 
   const changed =
     Number(v.calories) !== Math.round(food.calories) || Number(v.protein_g) !== Math.round(food.protein_g) ||
@@ -26,8 +40,15 @@ export default function VerifyModal({ food, onDone, onCancel }: {
 
   async function attach(file: File) {
     if ((await sha256(file)) !== food.file_hash) { setErr('That file doesn’t match this cookbook.'); return }
-    await savePdf(food.file_hash, file)
-    setBlob(file); setErr('')
+    setErr('')
+    try {
+      const { pages } = await api(`/books/${food.book_id}/pages`)
+      await cachePages(file, food.file_hash, pages, (d, t) => setProgress(`Saving small page images… ${d}/${t}`))
+      setProgress('')
+      await loadOrigin()
+    } catch (e: any) {
+      setProgress(''); setErr(e.message || 'Could not read that file')
+    }
   }
 
   async function confirm() {
@@ -74,14 +95,19 @@ export default function VerifyModal({ food, onDone, onCancel }: {
         </div>
         <div className="compare">
           <div className="origin">
-            {blob === undefined && <p className="note">Loading…</p>}
-            {blob && <PdfPage blob={blob} page={food.source_page} />}
-            {blob === null && (
+            {img === undefined && <p className="note">Loading…</p>}
+            {img && <img className="pdfpage" src={img} alt={`Page ${food.source_page + 1} of ${food.book_title ?? 'the cookbook'}`} />}
+            {img === null && legacy && <PdfPage blob={legacy} page={food.source_page} />}
+            {img === null && !legacy && (
               <div className="note">
-                <p>The original page isn’t on this device. Attach the cookbook PDF to see it side by side (it stays on this device).</p>
-                <label className="filebtn">Attach PDF
-                  <input type="file" accept="application/pdf" hidden onChange={(e) => e.target.files?.[0] && attach(e.target.files[0])} />
-                </label>
+                {progress ? <p>{progress}</p> : (
+                  <>
+                    <p>The original page isn’t saved on this device. Choose the cookbook PDF again to see it side by side. The app only keeps small images of the recipe pages, not the whole PDF.</p>
+                    <label className="filebtn">Choose PDF
+                      <input type="file" accept="application/pdf" hidden onChange={(e) => e.target.files?.[0] && attach(e.target.files[0])} />
+                    </label>
+                  </>
+                )}
               </div>
             )}
           </div>

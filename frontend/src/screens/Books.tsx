@@ -1,32 +1,72 @@
 import { useEffect, useRef, useState } from 'react'
-import { supabase } from '../lib'
-import { api } from '../lib'
-import { deletePdf, getPdf, savePdf, sha256 } from '../localpdf'
+import { supabase, api } from '../lib'
+import { cachePages, deletePages, deletePdf, getPdf, pagesInfo, sha256, type PagesInfo } from '../localpdf'
 
 const API = import.meta.env.VITE_API_URL as string
 
+const mb = (bytes: number) => (bytes / 1e6 < 10 ? (bytes / 1e6).toFixed(1) : Math.round(bytes / 1e6)) + ' MB'
+
 export default function Books() {
   const [books, setBooks] = useState<any[]>([])
-  const [local, setLocal] = useState<Record<string, boolean>>({})
+  const [local, setLocal] = useState<Record<string, PagesInfo | null>>({})
   const [busy, setBusy] = useState('')
   const [result, setResult] = useState<any>(null)
   const [err, setErr] = useState('')
   const [olderCopies, setOlderCopies] = useState<any[]>([])
   const [updating, setUpdating] = useState<any>(null)
+  const [reattachFor, setReattachFor] = useState<any>(null)
   const updateRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const reattach = useRef<HTMLInputElement>(null)
-  const [reattachFor, setReattachFor] = useState<string | null>(null)
+  const converting = useRef(false)
+
+  async function refreshLocal(list: any[]) {
+    const have: Record<string, PagesInfo | null> = {}
+    for (const b of list) have[b.file_hash] = (await pagesInfo(b.file_hash).catch(() => undefined)) ?? null
+    setLocal(have)
+    return have
+  }
+
+  // Older versions kept whole PDFs on this device. Shrink them to small page images, then delete the PDF.
+  async function convertLegacy(list: any[], have: Record<string, PagesInfo | null>) {
+    if (converting.current) return
+    converting.current = true
+    try {
+      for (const b of list) {
+        const pdf = await getPdf(b.file_hash).catch(() => undefined)
+        if (!pdf) continue
+        if (!have[b.file_hash]) {
+          setBusy(`Shrinking the saved copy of “${b.title}” to save space…`)
+          const { pages } = await api(`/books/${b.id}/pages`)
+          await cachePages(pdf, b.file_hash, pages, (d, t) => setBusy(`Shrinking “${b.title}” to save space… ${d}/${t}`))
+        }
+        await deletePdf(b.file_hash)
+      }
+      await refreshLocal(list)
+    } catch (e: any) {
+      setErr('Couldn’t shrink a saved copy: ' + (e.message || 'unknown error'))
+    } finally {
+      converting.current = false
+      setBusy('')
+    }
+  }
 
   async function load() {
     const list = await api('/books')
     setBooks(list)
-    return list
-    const have: Record<string, boolean> = {}
-    for (const b of list) have[b.file_hash] = !!(await getPdf(b.file_hash).catch(() => undefined))
-    setLocal(have)
+    const have = await refreshLocal(list)
+    return { list, have }
   }
-  useEffect(() => { load().catch((e) => setErr(e.message)) }, [])
+  useEffect(() => {
+    load().then(({ list, have }) => convertLegacy(list, have)).catch((e) => setErr(e.message))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function savePageImages(file: File, book: { id: number; file_hash: string }) {
+    const { pages } = await api(`/books/${book.id}/pages`)
+    setBusy(`Saving small page images for checks… 0/${pages.length}`)
+    await cachePages(file, book.file_hash, pages, (d, t) => setBusy(`Saving small page images for checks… ${d}/${t}`))
+  }
 
   async function importPdf(file: File, replace?: any) {
     setErr(''); setResult(null)
@@ -43,12 +83,14 @@ export default function Books() {
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(typeof body.detail === 'string' ? body.detail : `Import failed (${res.status})`)
-      await savePdf(body.file_hash, file)  // keep the original on this device for side-by-side checks
       setResult(body)
+      // Keep only small images of the recipe pages on this device (not the whole PDF).
+      await savePageImages(file, body)
       if (replace && body.replaced && !body.replaced.skipped && !body.replaced.same_file) {
-        await deletePdf(replace.file_hash).catch(() => {})  // old edition's local copy is no longer needed
+        await deletePages(replace.file_hash).catch(() => {})
+        await deletePdf(replace.file_hash).catch(() => {})
       }
-      const list = await load()
+      const { list } = await load()
       const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, '')
       const mine = norm(body.title)
       setOlderCopies(replace ? [] : list.filter((b: any) => {
@@ -62,19 +104,34 @@ export default function Books() {
     }
   }
 
-  async function reattachPdf(file: File, hash: string) {
+  async function reattachPdf(file: File, book: any) {
     setErr('')
-    if ((await sha256(file)) !== hash) { setErr('That file doesn’t match this cookbook.'); return }
-    await savePdf(hash, file)
-    load()
+    try {
+      if ((await sha256(file)) !== book.file_hash) { setErr('That file doesn’t match this cookbook.'); return }
+      await savePageImages(file, book)
+      await load()
+    } catch (e: any) {
+      setErr(e.message)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function freeSpace(b: any) {
+    await deletePages(b.file_hash).catch(() => {})
+    await deletePdf(b.file_hash).catch(() => {})
+    await refreshLocal(books)
   }
 
   async function remove(b: any, ask = true) {
     if (ask && !confirm(`Remove “${b.title}”? Its recipes will no longer appear in search. Past logs are kept.`)) return
     await api(`/books/${b.id}`, { method: 'DELETE' })
+    await deletePages(b.file_hash).catch(() => {})
     await deletePdf(b.file_hash).catch(() => {})
     load()
   }
+
+  const totalBytes = Object.values(local).reduce((a, i) => a + (i?.bytes ?? 0), 0)
 
   return (
     <div>
@@ -145,29 +202,38 @@ export default function Books() {
 
       <section className="card list">
         {books.length === 0 && !busy && <p className="note" style={{ padding: 14 }}>No cookbooks yet. Tap Import PDF to add one.</p>}
-        {books.map((b) => (
-          <div key={b.id} className="meal">
-            <div className="mealhead static">
-              <span className="tile">📖</span>
-              <span className="mealtext">
-                <b>{b.title}</b>
-                <small>
-                  {b.recipes} recipes ·{' '}
-                  {local[b.file_hash] ? 'original pages on this device' : (
-                    <button className="link inline" onClick={() => { setReattachFor(b.file_hash); reattach.current?.click() }}>
-                      attach PDF for side-by-side checks
-                    </button>
-                  )}
-                </small>
-              </span>
-              <button className="link" disabled={!!busy} title="Replace this book with a newer edition"
-                onClick={() => { setUpdating(b); setTimeout(() => updateRef.current?.click(), 0) }}>Update</button>
-              <button className="link" aria-label="Remove cookbook" onClick={() => remove(b)}>✕</button>
+        {books.map((b) => {
+          const info = local[b.file_hash]
+          return (
+            <div key={b.id} className="meal">
+              <div className="mealhead static">
+                <span className="tile">📖</span>
+                <span className="mealtext">
+                  <b>{b.title}</b>
+                  <small>
+                    {b.recipes} recipes ·{' '}
+                    {info ? (
+                      <>pages saved for checks ({mb(info.bytes)}){' '}
+                        <button className="link inline" onClick={() => freeSpace(b)}>free up space</button></>
+                    ) : (
+                      <button className="link inline" onClick={() => { setReattachFor(b); reattach.current?.click() }}>
+                        choose the PDF to enable page checks
+                      </button>
+                    )}
+                  </small>
+                </span>
+                <button className="link" disabled={!!busy} title="Replace this book with a newer edition"
+                  onClick={() => { setUpdating(b); setTimeout(() => updateRef.current?.click(), 0) }}>Update</button>
+                <button className="link" aria-label="Remove cookbook" onClick={() => remove(b)}>✕</button>
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </section>
-      <p className="note">Your PDFs are kept only on this device. The server stores just recipe names and nutrition numbers.</p>
+      <p className="note">
+        The app keeps only small images of each recipe page on this device{totalBytes > 0 ? ` (${mb(totalBytes)} in total)` : ''}, never the whole PDF.
+        The server keeps just recipe names and nutrition numbers.
+      </p>
     </div>
   )
 }

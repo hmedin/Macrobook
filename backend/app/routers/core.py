@@ -244,7 +244,7 @@ def search_foods(q: str, uid: str = Depends(current_user_id)):
     with db.conn() as c:
         rows = c.execute(
             """select f.id, f.name, f.source_type, f.restaurant, b.title as book_title, f.serving_desc,
-                      f.calories, f.protein_g, f.carbs_g, f.fat_g, f.is_estimate, f.source_url, f.source_quote, f.estimate_note, f.source_page, b.file_hash,
+                      f.calories, f.protein_g, f.carbs_g, f.fat_g, f.is_estimate, f.source_url, f.source_quote, f.estimate_note, f.source_page, f.book_id, b.file_hash,
                       f.is_batch, f.book_servings, fp.servings as user_servings, fp.total_weight_g as user_total_weight_g,
                       (v.user_id is not null) as verified
                from foods f

@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import * as pdfjs from 'pdfjs-dist'
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-
-pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
+import pdfjs from './pdf'
 
 // Renders one page (0-based) of a PDF blob onto a canvas.
 export default function PdfPage({ blob, page }: { blob: Blob; page: number }) {
@@ -11,7 +8,7 @@ export default function PdfPage({ blob, page }: { blob: Blob; page: number }) {
 
   useEffect(() => {
     let cancelled = false
-    let task: pdfjs.PDFDocumentLoadingTask | null = null
+    let task: ReturnType<typeof pdfjs.getDocument> | null = null
     ;(async () => {
       try {
         task = pdfjs.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) })
