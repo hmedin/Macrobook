@@ -294,3 +294,22 @@ details.how p { margin: 6px 0; }
 .others .chips.wrap .chip.static:hover { background: var(--bg); }
 .mealrow { display: grid; grid-template-columns: 1fr 90px; gap: 12px; align-items: center; }
 .mealrow p { margin: 2px 0 0; }
+
+/* ---- app shell: the page is a fixed-height frame; content scrolls inside it ----
+   Avoids iOS bugs with position:fixed bars and the collapsing browser toolbar. */
+html, body, #root { height: 100%; }
+.app { height: 100vh; height: 100dvh; max-width: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.app > main {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  width: 100%; max-width: 560px; margin: 0 auto; padding: 0 16px 24px;
+}
+.app > nav { position: static; flex: 0 0 auto; padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
+@media (min-width: 900px) {
+  .app > nav { order: -1; padding: 6px 32px; }
+  .app > main { max-width: 1120px; padding: 0 32px 32px; }
+  .top { top: 0; margin: 0 -32px; padding: 18px 32px 12px; }
+}
+
+/* iOS date fields: stay inside their card, left-aligned like other inputs */
+input[type="date"] { -webkit-appearance: none; appearance: none; display: block; min-width: 0; text-align: left; min-height: 46px; }
+input[type="date"]::-webkit-date-and-time-value { text-align: left; }
