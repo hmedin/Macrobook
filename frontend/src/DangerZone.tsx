@@ -5,7 +5,7 @@ import { deleteAllPdfs } from './localpdf'
 export function LegalLinks() {
   return (
     <p className="note legal">
-      <a href="/privacy" target="_blank" rel="noopener noreferrer">Privacy policy</a>
+      <a href="/privacy.html" target="_blank" rel="noopener noreferrer">Privacy policy</a>
     </p>
   )
 }
