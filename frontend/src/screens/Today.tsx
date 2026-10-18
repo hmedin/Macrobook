@@ -43,10 +43,10 @@ export default function Today({ profile }: { profile: any }) {
   const dateRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(
-    () => api(`/day/${day}`).then((d) => { setData(d); setErr('') }).catch((e) => setErr(e.message)),
+    () => api(`/day/${day}`).then((d) => { setData(d); setDone(!!d.complete); setErr('') }).catch((e) => setErr(e.message)),
     [day],
   )
-  useEffect(() => { setDone(false); load() }, [load])
+  useEffect(() => { load() }, [load])
 
   useEffect(() => {
     if (q.trim().length < 2) { setResults([]); return }
@@ -153,8 +153,8 @@ export default function Today({ profile }: { profile: any }) {
         <div className="actions">
           <button
             className={done ? 'markbtn done' : 'markbtn'}
-            title="Mark this day as fully logged so adaptive goals can use it"
-            onClick={() => api(`/day/${day}/complete`, { method: 'PUT' }).then(() => setDone(true)).catch((e) => setErr(e.message))}
+            title={done ? 'This day is marked as fully logged. Tap to undo.' : 'Mark this day as fully logged so adaptive goals can use it'}
+            onClick={() => api(`/day/${day}/complete`, { method: done ? 'DELETE' : 'PUT' }).then(() => setDone(!done)).catch((e) => setErr(e.message))}
           >
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M20 6L9 17l-5-5" />

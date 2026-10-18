@@ -387,6 +387,9 @@ def day_summary(day: date, uid: str = Depends(current_user_id)):
         eat_back = c.execute(
             "select exercise_eat_back from profiles where user_id = %s", (uid,)
         ).fetchone()
+        complete = c.execute(
+            "select 1 from complete_days where user_id = %s and date = %s", (uid, day)
+        ).fetchone() is not None
     burned = sum(float(x["kcal_burned"]) for x in exercise)
     bonus = round(burned * goals.EAT_BACK[(eat_back or {}).get("exercise_eat_back", "none")])
     try:
@@ -398,7 +401,14 @@ def day_summary(day: date, uid: str = Depends(current_user_id)):
     except HTTPException:
         target = None
     return {"date": day, "logs": logs, "totals": totals, "target": target, "exercise": exercise,
-            "exercise_burned": round(burned), "has_estimates": any(r["is_estimate"] for r in logs)}
+            "exercise_burned": round(burned), "complete": complete, "has_estimates": any(r["is_estimate"] for r in logs)}
+
+
+@router.delete("/day/{day}/complete")
+def unmark_complete(day: date, uid: str = Depends(current_user_id)):
+    with db.conn() as c:
+        c.execute("delete from complete_days where user_id = %s and date = %s", (uid, day))
+    return {"ok": True}
 
 
 @router.put("/day/{day}/complete")
