@@ -7,6 +7,8 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // The privacy page is a plain static page; don't let the app's service worker answer for it.
+      workbox: { navigateFallbackDenylist: [/^\/privacy/] },
       manifest: {
         name: 'Macrobook',
         short_name: 'Macrobook',
