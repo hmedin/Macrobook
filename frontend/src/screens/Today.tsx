@@ -248,6 +248,7 @@ export default function Today({ profile }: { profile: any }) {
                     </div>
                   ))}
                   <input placeholder="Search meals, recipes, restaurants…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+                  <div className="results">
                   {results.map((r) => (
                     <button key={r.id} className="result" onClick={() => logFood(s, r)}>
                       <span>{r.name}</span>
@@ -257,6 +258,7 @@ export default function Today({ profile }: { profile: any }) {
                       </small>
                     </button>
                   ))}
+                  </div>
                   {q.trim().length >= 3 && (
                     <button className="link" disabled={lookingUp} onClick={() => lookUp(s)}>
                       {lookingUp ? 'Looking it up…' : `🔎 Look up “${q.trim()}” online`}
