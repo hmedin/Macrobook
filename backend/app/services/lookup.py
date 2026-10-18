@@ -1,4 +1,8 @@
-"""Restaurant nutrition lookup: Claude + web search, validated and flagged before anything is trusted."""
+"""Restaurant nutrition lookup: Claude + web search, validated and flagged before anything is trusted.
+
+A request can be one item or a whole order (a plate, a burger and fries). Each item comes back with the
+assumptions made for vague details and the other figures seen when sources disagree.
+"""
 from __future__ import annotations
 
 import json
@@ -13,26 +17,37 @@ from ..config import get_settings
 
 LOOKUP_MODEL = os.environ.get("LOOKUP_MODEL", "claude-haiku-5-5")
 MAX_CONTINUES = 3
+MAX_ITEMS = 6
 
-SYSTEM = """You find nutrition facts for a single restaurant menu item using web search.
+SYSTEM = """You find nutrition facts for restaurant menu items using web search.
+
+The request may be one item or a whole order (for example a plate with a side and an entree, or a burger and fries). Split it into the distinct menu items a person would log separately, and return one entry per item, each for ONE standard serving.
 
 Rules:
 - Prefer the restaurant's own official nutrition page, PDF, or menu. Use a third-party site only if no official source is found, and say so.
-- Report numbers for ONE standard serving of the item exactly as the source lists it. Do not add or subtract sides, sauces, or sizes unless the item name asks for them.
-- Copy numbers from the page. Never invent, average, or guess. If you cannot find reliable numbers, set found to false.
-- Keep serving_desc short (for example "1 sandwich" or "medium, 4 oz") and notes to one or two sentences. Mention in notes if other sources disagree.
+- When the request leaves details open (size, crust, flavor, toppings, sauce), assume the restaurant's most common default and list each assumption briefly in "assumptions". Put the size or variant you chose in the item name, for example "Pepperoni Pizza, Large Hand Tossed". Set found to false only if you cannot tell which restaurant or what food is meant.
+- For items sold in pieces (pizza slices, wings, nuggets), report ONE piece unless the request names a count. For combos, use the restaurant's own definition of what the combo contains, and return each component separately.
+- Copy numbers from the page. Never invent, average, or guess them. If you cannot find reliable numbers for an item, leave it out and mention that in meal_note.
+- When sources disagree, report the official figure if there is one; otherwise report the figure that MOST sources agree on for the restaurant's standard portion (not an outlier), and list up to three other calorie figures you saw in "other_values", each with a short source name.
 - "source_quote" must be the exact text from the page that contains the calories (and macros if shown), so a person can check it.
-- confidence: "official" (restaurant's own site/PDF), "third_party" (another site's copy of the data), or "estimate" (you had to estimate any value).
-- Answer with ONLY a JSON object, no prose, no code fences, with exactly these keys:
-  found (bool), restaurant (string), name (string), serving_desc (string), calories (number),
-  protein_g (number), carbs_g (number), fat_g (number), source_url (string), source_quote (string),
-  confidence ("official"|"third_party"|"estimate"), notes (string)."""
+- confidence: "official" (restaurant's own site or PDF), "third_party" (another site's copy of the data), or "estimate" (you had to estimate any value).
+- Keep serving_desc short (for example "1 slice (1/8 of 14 in)" or "1 entree, 6 oz") and notes to one or two sentences.
+- Answer with ONLY a JSON object, no prose, no code fences:
+  {"found": bool, "meal_note": string,
+   "items": [{"name": string, "restaurant": string, "serving_desc": string, "calories": number,
+              "protein_g": number, "carbs_g": number, "fat_g": number, "source_url": string,
+              "source_quote": string, "confidence": "official"|"third_party"|"estimate", "notes": string,
+              "assumptions": [string], "other_values": [{"calories": number, "source": string}]}]}"""
 
 
-class LookupResult(BaseModel):
-    found: bool
-    restaurant: str = ""
+class OtherValue(BaseModel):
+    calories: float = Field(default=0, ge=0, le=10000)
+    source: str = ""
+
+
+class Item(BaseModel):
     name: str = ""
+    restaurant: str = ""
     serving_desc: str = ""
     calories: float = Field(default=0, ge=0, le=6000)
     protein_g: float = Field(default=0, ge=0, le=500)
@@ -42,6 +57,14 @@ class LookupResult(BaseModel):
     source_quote: str = ""
     confidence: Literal["official", "third_party", "estimate"] = "estimate"
     notes: str = ""
+    assumptions: list[str] = Field(default_factory=list, max_length=8)
+    other_values: list[OtherValue] = Field(default_factory=list, max_length=5)
+
+
+class LookupResult(BaseModel):
+    found: bool
+    meal_note: str = ""
+    items: list[Item] = Field(default_factory=list, max_length=MAX_ITEMS)
 
 
 class LookupError(Exception):
@@ -62,20 +85,16 @@ def _final_text(content) -> str:
     return "".join(b.text for b in content if getattr(b, "type", "") == "text")
 
 
-def validate(r: LookupResult) -> dict:
+def validate_item(r: Item) -> dict:
     """Adds sanity flags. The numbers still go through the user's side-by-side check."""
     out = r.model_dump()
     implied = 4 * r.protein_g + 4 * r.carbs_g + 9 * r.fat_g
     has_macros = (r.protein_g + r.carbs_g + r.fat_g) > 0
     out["consistent"] = (not has_macros) or (r.calories > 0 and abs(implied - r.calories) / r.calories <= 0.30)
     out["has_macros"] = has_macros
-    quote = r.source_quote.lower()
     # The quoted line should actually contain the calorie figure we report.
-    out["quote_matches"] = bool(r.source_quote) and str(int(round(r.calories))) in re.sub(r"[,\s]", "", quote)
-    if r.confidence == "estimate":
-        out["is_estimate"] = True
-    else:
-        out["is_estimate"] = False
+    out["quote_matches"] = bool(r.source_quote) and str(int(round(r.calories))) in re.sub(r"[,\s]", "", r.source_quote.lower())
+    out["is_estimate"] = r.confidence == "estimate"
     return out
 
 
@@ -86,13 +105,13 @@ def lookup(query: str) -> dict:
     client = anthropic.Anthropic(api_key=key)
 
     messages: list[dict] = [{"role": "user", "content": f"Find the nutrition facts for: {query}"}]
-    tools = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 4}]
+    tools = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 8}]
 
     response = None
     for _ in range(MAX_CONTINUES + 1):
         response = client.messages.create(
             model=LOOKUP_MODEL,
-            max_tokens=2500,
+            max_tokens=4000,
             system=SYSTEM,
             tools=tools,
             output_config={"effort": "low"},
@@ -105,12 +124,13 @@ def lookup(query: str) -> dict:
     if response is None or response.stop_reason == "refusal":
         raise LookupError("The lookup was declined")
     if response.stop_reason == "max_tokens":
-        raise LookupError("The lookup ran too long; try a more specific name")
+        raise LookupError("The lookup ran too long; try asking for fewer items at once")
 
     try:
         result = LookupResult.model_validate(_extract_json(_final_text(response.content)))
     except ValidationError as exc:
         raise LookupError("The result didn't look right") from exc
-    if not result.found or result.calories <= 0:
-        return {"found": False}
-    return validate(result)
+    items = [validate_item(i) for i in result.items if i.name and i.calories > 0]
+    if not result.found or not items:
+        return {"found": False, "meal_note": result.meal_note}
+    return {"found": True, "meal_note": result.meal_note, "items": items}

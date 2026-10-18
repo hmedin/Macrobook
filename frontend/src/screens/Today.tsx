@@ -5,6 +5,7 @@ import VerifyModal from '../VerifyModal'
 import ServingSheet from '../ServingSheet'
 import InstallHelp from '../InstallHelp'
 import RestaurantModal from '../RestaurantModal'
+import MealSheet from '../MealSheet'
 
 const SLOTS = ['breakfast', 'lunch', 'dinner', 'snack'] as const
 type Slot = (typeof SLOTS)[number]
@@ -37,7 +38,8 @@ export default function Today({ profile }: { profile: any }) {
   const [done, setDone] = useState(false)
   const [verify, setVerify] = useState<{ slot: Slot; food: any } | null>(null)
   const [pick, setPick] = useState<{ slot: Slot; food: any } | null>(null)
-  const [rcheck, setRcheck] = useState<{ slot: Slot; item: any; mode: 'lookup' | 'cached' } | null>(null)
+  const [rcheck, setRcheck] = useState<{ slot: Slot; items: any[]; mode: 'lookup' | 'cached'; lookupId?: number; mealNote?: string } | null>(null)
+  const [meal, setMeal] = useState<{ slot: Slot; foods: any[] } | null>(null)
   const [lookingUp, setLookingUp] = useState(false)
   const [lookupMsg, setLookupMsg] = useState('')
   const [err, setErr] = useState('')
@@ -62,7 +64,7 @@ export default function Today({ profile }: { profile: any }) {
 
   async function logFood(slot: Slot, food: any) {
     if (food.source_type === 'recipe' && !food.verified) { setVerify({ slot, food }); return }
-    if (food.source_type === 'restaurant' && !food.verified) { setRcheck({ slot, item: food, mode: 'cached' }); return }
+    if (food.source_type === 'restaurant' && !food.verified) { setRcheck({ slot, items: [food], mode: 'cached' }); return }
     setPick({ slot, food })
   }
 
@@ -118,7 +120,7 @@ export default function Today({ profile }: { profile: any }) {
     try {
       const r = await api('/restaurant/lookup', { method: 'POST', body: JSON.stringify({ query: q.trim() }) })
       if (!r.found) setLookupMsg('Couldn’t find reliable numbers for that. Try the exact menu name, or add it manually.')
-      else setRcheck({ slot, item: r, mode: 'lookup' })
+      else setRcheck({ slot, items: r.items, mode: 'lookup', lookupId: r.lookup_id, mealNote: r.meal_note })
     } catch (e: any) {
       setLookupMsg(e.message)
     } finally {
@@ -126,9 +128,22 @@ export default function Today({ profile }: { profile: any }) {
     }
   }
 
-  function afterRestaurant(food: any) {
+  async function confirmMeal(amounts: number[]) {
+    if (!meal) return
+    for (let i = 0; i < meal.foods.length; i++) {
+      if (amounts[i] <= 0) continue
+      await api('/logs', {
+        method: 'POST',
+        body: JSON.stringify({ date: day, meal_slot: meal.slot, food_id: meal.foods[i].id, servings: amounts[i] }),
+      })
+    }
+    setMeal(null); setQ(''); setResults([]); load()
+  }
+
+  function afterRestaurant(foods: any[]) {
     if (!rcheck) return
-    setPick({ slot: rcheck.slot, food })
+    if (foods.length === 1) setPick({ slot: rcheck.slot, food: foods[0] })
+    else setMeal({ slot: rcheck.slot, foods })
     setRcheck(null)
   }
 
@@ -246,6 +261,9 @@ export default function Today({ profile }: { profile: any }) {
                       {lookingUp ? 'Looking it up…' : `🔎 Look up “${q.trim()}” online`}
                     </button>
                   )}
+                  {q.trim().length >= 3 && !lookingUp && !lookupMsg && (
+                    <p className="note">Tip: you can describe a whole order, like “Panda Express plate with teriyaki chicken and chow mein”, or a variant like “Domino’s large pepperoni, 2 slices”.</p>
+                  )}
                   {lookupMsg && <p className="note">{lookupMsg}</p>}
                   <button className="link" onClick={() => setManual(!manual)}>{manual ? 'Cancel' : '+ Add manually'}</button>
                   {manual && (
@@ -327,7 +345,8 @@ export default function Today({ profile }: { profile: any }) {
       </div>
       </div>
       {verify && <VerifyModal food={verify.food} onDone={afterVerify} onCancel={() => setVerify(null)} />}
-      {rcheck && <RestaurantModal item={rcheck.item} mode={rcheck.mode} onDone={afterRestaurant} onCancel={() => setRcheck(null)} />}
+      {rcheck && <RestaurantModal items={rcheck.items} mode={rcheck.mode} lookupId={rcheck.lookupId} mealNote={rcheck.mealNote} onDone={afterRestaurant} onCancel={() => setRcheck(null)} />}
+      {meal && <MealSheet foods={meal.foods} slot={meal.slot} onConfirm={confirmMeal} onCancel={() => setMeal(null)} />}
       {pick && <ServingSheet food={pick.food} slot={pick.slot} onConfirm={confirmPick} onCancel={() => setPick(null)} />}
     </div>
   )

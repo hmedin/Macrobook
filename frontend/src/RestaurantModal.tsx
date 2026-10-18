@@ -2,95 +2,147 @@ import { useState } from 'react'
 import { api } from './lib'
 
 const BADGE: Record<string, string> = { official: 'Official source', third_party: 'Third-party source', estimate: 'Estimate' }
+const KEYS = ['calories', 'protein_g', 'carbs_g', 'fat_g'] as const
 
-// First-use check for a restaurant item: what we found, where, and the exact line it came from.
-// `lookup` = fresh result from /restaurant/lookup; `cached` = an existing shared item not yet confirmed by this user.
-export default function RestaurantModal({ item, mode, onDone, onCancel }: {
-  item: any
+// First-use check for restaurant items: what we found, where, and the exact line it came from.
+// A lookup can return several items (a plate, a burger and fries); each is checked and can be left out.
+// `lookup` = fresh result from /restaurant/lookup; `cached` = a shared item this user hasn't confirmed yet.
+export default function RestaurantModal({ items, mode, lookupId, mealNote, onDone, onCancel }: {
+  items: any[]
   mode: 'lookup' | 'cached'
-  onDone: (food: any) => void
+  lookupId?: number
+  mealNote?: string
+  onDone: (foods: any[]) => void
   onCancel: () => void
 }) {
-  const [v, setV] = useState({
-    calories: String(Math.round(item.calories)), protein_g: String(Math.round(item.protein_g)),
-    carbs_g: String(Math.round(item.carbs_g)), fat_g: String(Math.round(item.fat_g)),
-  })
+  const [vals, setVals] = useState(() =>
+    items.map((it) => Object.fromEntries(KEYS.map((k) => [k, String(Math.round(Number(it[k]) || 0))])) as Record<string, string>),
+  )
+  const [include, setInclude] = useState(() => items.map(() => true))
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const changed =
-    Number(v.calories) !== Math.round(item.calories) || Number(v.protein_g) !== Math.round(item.protein_g) ||
-    Number(v.carbs_g) !== Math.round(item.carbs_g) || Number(v.fat_g) !== Math.round(item.fat_g)
-
-  const confidence = item.confidence ?? (item.is_estimate ? 'estimate' : 'official')
-  const warnings: string[] = []
-  if (item.consistent === false) warnings.push('The calories don’t match the macros, so one of them may be wrong.')
-  if (mode === 'lookup' && item.quote_matches === false) warnings.push('The quoted text doesn’t show the calorie number. Check the source link.')
-  if (confidence === 'estimate') warnings.push('This is an estimate, not an official number.')
-  if (confidence === 'third_party') warnings.push('This came from a third-party site, not the restaurant itself.')
-
-  const nums = { calories: Number(v.calories) || 0, protein_g: Number(v.protein_g) || 0, carbs_g: Number(v.carbs_g) || 0, fat_g: Number(v.fat_g) || 0 }
+  const changed = (i: number) => KEYS.some((k) => Number(vals[i][k]) !== Math.round(Number(items[i][k]) || 0))
+  const nums = (i: number) => Object.fromEntries(KEYS.map((k) => [k, Number(vals[i][k]) || 0])) as Record<string, number>
+  const chosen = items.map((_, i) => i).filter((i) => include[i])
+  const total = chosen.reduce((a, i) => a + (Number(vals[i].calories) || 0), 0)
 
   async function confirm() {
+    if (!chosen.length) return
     setBusy(true); setErr('')
     try {
       if (mode === 'lookup') {
-        const food = await api('/restaurant/save', {
+        const { foods } = await api('/restaurant/save', {
           method: 'POST',
-          body: JSON.stringify({ lookup_id: item.lookup_id, edits: changed ? nums : undefined }),
+          body: JSON.stringify({
+            lookup_id: lookupId,
+            picks: chosen.map((i) => ({ index: i, edits: changed(i) ? nums(i) : undefined })),
+          }),
         })
-        onDone(food)
-      } else if (changed) {
-        const { id } = await api('/foods', {
-          method: 'POST',
-          body: JSON.stringify({ name: `${item.name} (edited)`, serving_desc: item.serving_desc, ...nums }),
-        })
-        onDone({ ...item, id, name: `${item.name} (edited)`, source_type: 'custom', verified: true, ...nums })
+        onDone(foods)
       } else {
-        await api(`/foods/${item.id}/verify`, { method: 'POST' })
-        onDone({ ...item, verified: true })
+        const foods: any[] = []
+        for (const i of chosen) {
+          const item = items[i]
+          if (changed(i)) {
+            const { id } = await api('/foods', {
+              method: 'POST',
+              body: JSON.stringify({ name: `${item.name} (edited)`, serving_desc: item.serving_desc, ...nums(i) }),
+            })
+            foods.push({ ...item, id, name: `${item.name} (edited)`, source_type: 'custom', verified: true, ...nums(i) })
+          } else {
+            await api(`/foods/${item.id}/verify`, { method: 'POST' })
+            foods.push({ ...item, verified: true })
+          }
+        }
+        onDone(foods)
       }
     } catch (e: any) {
       setErr(e.message); setBusy(false)
     }
   }
 
-  const field = (k: keyof typeof v, label: string) => (
-    <label>{label}<input type="number" value={v[k]} onChange={(e) => setV({ ...v, [k]: e.target.value })} /></label>
-  )
-
   return (
-    <div className="overlay" role="dialog" aria-modal="true" aria-label="Check this item">
-      <div className="modal sheet">
+    <div className="overlay" role="dialog" aria-modal="true" aria-label="Check these items">
+      <div className="modal sheet wide">
         <div className="modalhead">
           <div>
-            <h2>{item.name}</h2>
-            <p className="note">{[item.restaurant, item.serving_desc].filter(Boolean).join(' · ')}</p>
+            <h2>{items.length > 1 ? `Check these ${items.length} items` : items[0].name}</h2>
+            <p className="note">
+              {items.length > 1 ? 'Review each one. Uncheck anything you didn’t have.' : [items[0].restaurant, items[0].serving_desc].filter(Boolean).join(' · ')}
+            </p>
           </div>
           <button className="link" onClick={onCancel} aria-label="Close">✕</button>
         </div>
+        {mealNote && <p className="note">{mealNote}</p>}
 
-        <span className={`badge ${confidence}`}>{BADGE[confidence]}</span>
+        {items.map((item, i) => {
+          const confidence = item.confidence ?? (item.is_estimate ? 'estimate' : 'official')
+          const warnings: string[] = []
+          if (item.consistent === false) warnings.push('The calories don’t match the macros, so one of them may be wrong.')
+          if (mode === 'lookup' && item.quote_matches === false) warnings.push('The quoted text doesn’t show the calorie number. Check the source link.')
+          if (confidence === 'estimate') warnings.push('This is an estimate, not an official number.')
+          if (confidence === 'third_party') warnings.push('This came from a third-party site, not the restaurant itself.')
+          const note = item.notes || item.estimate_note
+          return (
+            <section key={i} className={include[i] ? 'itemcard' : 'itemcard off'}>
+              <div className="itemhead">
+                {items.length > 1 && (
+                  <input type="checkbox" checked={include[i]} aria-label={`Include ${item.name}`}
+                    onChange={(e) => setInclude(include.map((v, j) => (j === i ? e.target.checked : v)))} />
+                )}
+                <div>
+                  <b>{item.name}</b>
+                  <p className="note">{[item.restaurant, item.serving_desc].filter(Boolean).join(' · ')}</p>
+                </div>
+                <span className={`badge ${confidence}`}>{BADGE[confidence]}</span>
+              </div>
 
-        <div className="fields">
-          {field('calories', 'Calories')}
-          {field('protein_g', 'Protein g')}
-          {field('carbs_g', 'Carbs g')}
-          {field('fat_g', 'Fat g')}
-        </div>
+              {include[i] && (
+                <>
+                  <div className="fields">
+                    {KEYS.map((k) => (
+                      <label key={k}>{k === 'calories' ? 'Calories' : k === 'protein_g' ? 'Protein g' : k === 'carbs_g' ? 'Carbs g' : 'Fat g'}
+                        <input type="number" value={vals[i][k]}
+                          onChange={(e) => setVals(vals.map((v, j) => (j === i ? { ...v, [k]: e.target.value } : v)))} />
+                      </label>
+                    ))}
+                  </div>
 
-        {item.source_quote && (
-          <blockquote className="quote">“{item.source_quote}”</blockquote>
-        )}
-        {item.source_url && (
-          <a className="srclink" href={item.source_url} target="_blank" rel="noreferrer noopener">Open the source page ↗</a>
-        )}
-        {(item.notes || item.estimate_note) && <p className="note">{item.notes || item.estimate_note}</p>}
+                  {item.assumptions?.length > 0 && (
+                    <div className="assume">
+                      <b>What we assumed</b>
+                      <ul>{item.assumptions.map((a: string) => <li key={a}>{a}</li>)}</ul>
+                    </div>
+                  )}
+                  {item.other_values?.length > 0 && (
+                    <div className="others">
+                      <b>Other sources list</b>
+                      <div className="chips wrap">
+                        {item.other_values.map((o: any, j: number) => (
+                          <span key={j} className="chip static" title={o.source}>{Math.round(o.calories)} kcal · {o.source || 'other site'}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {item.source_quote && <blockquote className="quote">“{item.source_quote}”</blockquote>}
+                  {item.source_url && (
+                    <a className="srclink" href={item.source_url} target="_blank" rel="noreferrer noopener">Open the source page ↗</a>
+                  )}
+                  {note && <p className="note">{note}</p>}
+                  {warnings.map((w) => <p key={w} className="warn">⚠ {w}</p>)}
+                  {changed(i) && <p className="warn">You changed these numbers. They’ll be saved as your own copy, not shared.</p>}
+                </>
+              )}
+            </section>
+          )
+        })}
 
-        {warnings.map((w) => <p key={w} className="warn">⚠ {w}</p>)}
-        {changed && <p className="warn">You changed the numbers. They’ll be saved as your own copy, not shared.</p>}
+        {chosen.length > 1 && <p className="preview"><b>{Math.round(total)} kcal</b><span className="note">for the {chosen.length} items together</span></p>}
         {err && <p className="error">{err}</p>}
-        <button disabled={busy} onClick={confirm}>{changed ? 'Save my version & continue' : 'Looks right, continue'}</button>
+        <button disabled={busy || !chosen.length} onClick={confirm}>
+          {chosen.length > 1 ? `Looks right, continue with ${chosen.length}` : 'Looks right, continue'}
+        </button>
         <button className="link" onClick={onCancel}>Cancel</button>
       </div>
     </div>

@@ -16,7 +16,7 @@ FOOD_COLS = """id, name, source_type, restaurant, serving_desc, calories, protei
 
 
 class LookupIn(BaseModel):
-    query: str = Field(min_length=3, max_length=120)
+    query: str = Field(min_length=3, max_length=160)
 
 
 @router.post("/restaurant/lookup")
@@ -50,14 +50,63 @@ class Edits(BaseModel):
     fat_g: float = Field(ge=0, le=500)
 
 
+class Pick(BaseModel):
+    index: int = Field(ge=0, le=20)
+    edits: Edits | None = None  # present only if the user changed the numbers
+
+
 class SaveIn(BaseModel):
     lookup_id: int
-    edits: Edits | None = None  # present only if the user changed the numbers
+    picks: list[Pick] = Field(min_length=1, max_length=lookup_service.MAX_ITEMS)
 
 
 def _food_payload(row: dict) -> dict:
     return {**row, "verified": True, "is_batch": False, "book_servings": None, "user_servings": None,
             "user_total_weight_g": None, "book_title": None, "file_hash": None}
+
+
+def _notes(item: dict) -> str | None:
+    parts = [item.get("notes") or ""]
+    if item.get("assumptions"):
+        parts.append("Assumed: " + "; ".join(item["assumptions"]))
+    return " ".join(p for p in parts if p).strip() or None
+
+
+def _save_one(c, uid: str, item: dict, edits: Edits | None) -> dict:
+    name = item["name"] or "Restaurant item"
+    restaurant = item.get("restaurant") or ""
+    edited = edits is not None and (
+        round(edits.calories) != round(item["calories"]) or round(edits.protein_g) != round(item["protein_g"])
+        or round(edits.carbs_g) != round(item["carbs_g"]) or round(edits.fat_g) != round(item["fat_g"])
+    )
+    note = _notes(item)
+
+    if edited:
+        # Changed numbers stay private; never poison the shared cache.
+        row = c.execute(
+            f"""insert into foods (owner_id, source_type, restaurant, name, serving_desc, calories, protein_g,
+                                  carbs_g, fat_g, is_estimate, estimate_note, source_url, source_quote)
+               values (%s,'custom',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+               returning {FOOD_COLS}""",
+            (uid, restaurant, f"{name} (edited)", item.get("serving_desc"), edits.calories, edits.protein_g,
+             edits.carbs_g, edits.fat_g, bool(item.get("is_estimate")), note, item.get("source_url"),
+             item.get("source_quote")),
+        ).fetchone()
+        return _food_payload(row)
+
+    row = c.execute(
+        f"""insert into foods (owner_id, source_type, restaurant, name, serving_desc, calories, protein_g, carbs_g,
+                              fat_g, is_estimate, estimate_note, source_url, source_quote)
+           values (null,'restaurant',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+           on conflict (lower(restaurant), lower(name)) where source_type = 'restaurant'
+           do update set name = foods.name
+           returning {FOOD_COLS}""",
+        (restaurant, name, item.get("serving_desc"), item["calories"], item["protein_g"], item["carbs_g"],
+         item["fat_g"], bool(item.get("is_estimate")), note, item.get("source_url"), item.get("source_quote")),
+    ).fetchone()
+    c.execute("insert into food_verifications (user_id, food_id) values (%s,%s) on conflict do nothing",
+              (uid, row["id"]))
+    return _food_payload(row)
 
 
 @router.post("/restaurant/save")
@@ -66,41 +115,13 @@ def save_lookup(body: SaveIn, uid: str = Depends(current_user_id)):
         log = c.execute(
             "select result from lookup_log where id = %s and user_id = %s", (body.lookup_id, uid)
         ).fetchone()
-        if not log or not log["result"] or not log["result"].get("found"):
+        result = (log or {}).get("result") or {}
+        items = result.get("items") or []
+        if not result.get("found") or not items:
             raise HTTPException(404, "Lookup not found")
-        r = log["result"]
-        name = r["name"] or "Restaurant item"
-        restaurant = r.get("restaurant") or ""
-
-        edited = False
-        if body.edits is not None:
-            e = body.edits
-            edited = (round(e.calories) != round(r["calories"]) or round(e.protein_g) != round(r["protein_g"])
-                      or round(e.carbs_g) != round(r["carbs_g"]) or round(e.fat_g) != round(r["fat_g"]))
-
-        if edited:
-            # Changed numbers stay private; never poison the shared cache.
-            e = body.edits
-            row = c.execute(
-                f"""insert into foods (owner_id, source_type, restaurant, name, serving_desc, calories, protein_g,
-                                      carbs_g, fat_g, is_estimate, estimate_note, source_url, source_quote)
-                   values (%s,'custom',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                   returning {FOOD_COLS}""",
-                (uid, restaurant, f"{name} (edited)", r.get("serving_desc"), e.calories, e.protein_g, e.carbs_g,
-                 e.fat_g, bool(r.get("is_estimate")), r.get("notes"), r.get("source_url"), r.get("source_quote")),
-            ).fetchone()
-            return _food_payload(row)
-
-        row = c.execute(
-            f"""insert into foods (owner_id, source_type, restaurant, name, serving_desc, calories, protein_g, carbs_g,
-                                  fat_g, is_estimate, estimate_note, source_url, source_quote)
-               values (null,'restaurant',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-               on conflict (lower(restaurant), lower(name)) where source_type = 'restaurant'
-               do update set name = foods.name
-               returning {FOOD_COLS}""",
-            (restaurant, name, r.get("serving_desc"), r["calories"], r["protein_g"], r["carbs_g"], r["fat_g"],
-             bool(r.get("is_estimate")), r.get("notes"), r.get("source_url"), r.get("source_quote")),
-        ).fetchone()
-        c.execute("insert into food_verifications (user_id, food_id) values (%s,%s) on conflict do nothing",
-                  (uid, row["id"]))
-        return _food_payload(row)
+        foods = []
+        for pick in body.picks:
+            if pick.index >= len(items):
+                raise HTTPException(422, "Unknown item")
+            foods.append(_save_one(c, uid, items[pick.index], pick.edits))
+    return {"foods": foods}

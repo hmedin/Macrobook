@@ -277,3 +277,20 @@ button:disabled { opacity: .6; cursor: default; }
 details.how { background: var(--bg); border: 0; border-radius: 12px; padding: 10px 12px; }
 details.how ul { margin: 6px 0; padding-left: 20px; }
 details.how p { margin: 6px 0; }
+
+/* multi-item restaurant check */
+.modal.sheet.wide { max-width: 640px; }
+.itemcard { border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.itemcard.off { opacity: .55; }
+.itemhead { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; }
+.itemhead:not(:has(input[type=checkbox])) { grid-template-columns: 1fr auto; }
+.itemhead input[type=checkbox] { width: 20px; height: 20px; padding: 0; margin-top: 3px; accent-color: var(--green); }
+.itemhead p { margin: 2px 0 0; }
+.assume { background: var(--bg); border-radius: 10px; padding: 8px 12px; font-size: .88rem; }
+.assume ul { margin: 4px 0 0; padding-left: 18px; color: var(--muted); }
+.others { font-size: .88rem; }
+.others .chips { margin-top: 6px; gap: 6px; }
+.others .chips.wrap .chip.static { flex: 0 1 auto; width: auto; cursor: default; padding: 4px 10px; font-size: .8rem; font-weight: 500; }
+.others .chips.wrap .chip.static:hover { background: var(--bg); }
+.mealrow { display: grid; grid-template-columns: 1fr 90px; gap: 12px; align-items: center; }
+.mealrow p { margin: 2px 0 0; }
