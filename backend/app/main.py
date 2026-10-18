@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import get_settings
 from .routers import books, core, restaurant
 
-app = FastAPI(title="Calorie Tracker API")
+app = FastAPI(title="Macrobook API")
 
 app.add_middleware(
     CORSMiddleware,

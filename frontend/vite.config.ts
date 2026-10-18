@@ -8,8 +8,8 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
-        name: 'Calorie Tracker',
-        short_name: 'Calories',
+        name: 'Macrobook',
+        short_name: 'Macrobook',
         description: 'Track calories and macros against your goals',
         theme_color: '#16a34a',
         background_color: '#ffffff',

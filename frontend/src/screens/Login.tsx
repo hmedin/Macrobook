@@ -44,7 +44,7 @@ export default function Login() {
     <div className="login">
       <form className="card" onSubmit={submit}>
         <img className="logo" src="/icon.svg" alt="" />
-        <h1>Calorie Tracker</h1>
+        <h1>Macrobook</h1>
         <p className="tag">Eat what you love. Hit your goals.</p>
         <button type="button" className="social" onClick={() => oauth('google')}><GoogleIcon /> Continue with Google</button>
         <button type="button" className="social" onClick={() => oauth('discord')}><DiscordIcon /> Continue with Discord</button>
