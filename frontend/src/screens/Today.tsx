@@ -3,6 +3,7 @@ import { api, today } from '../lib'
 import { MacroBar, Ring } from '../components'
 import VerifyModal from '../VerifyModal'
 import ServingSheet from '../ServingSheet'
+import InstallHelp from '../InstallHelp'
 import RestaurantModal from '../RestaurantModal'
 
 const SLOTS = ['breakfast', 'lunch', 'dinner', 'snack'] as const
@@ -170,6 +171,7 @@ export default function Today({ profile }: { profile: any }) {
         <input ref={dateRef} className="hidden-date" type="date" value={day} onChange={(e) => e.target.value && setDay(e.target.value)} />
       </header>
       {err && <p className="error">{err}</p>}
+      <InstallHelp banner />
 
       <div className="dash">
       <div className="side">

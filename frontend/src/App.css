@@ -261,3 +261,9 @@ button:disabled { opacity: .6; cursor: default; }
 
 /* books: update button column */
 .mealhead.static { grid-template-columns: 44px 1fr auto auto; }
+
+/* install help */
+.tip { gap: 6px; padding: 14px 16px; }
+.tiphead { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.tiphead .link { color: var(--muted); padding: 0 4px; }
+.card ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: .92rem; }
