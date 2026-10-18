@@ -309,6 +309,8 @@ html, body, #root { height: 100%; }
   flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
   width: 100%; max-width: 560px; margin: 0 auto; padding: 0 16px 24px;
 }
+.app > main { scrollbar-width: none; }
+.app > main::-webkit-scrollbar { display: none; }
 .app > nav { position: static; flex: 0 0 auto; padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
 @media (min-width: 900px) {
   .app > nav { order: -1; padding: 6px 32px; }
