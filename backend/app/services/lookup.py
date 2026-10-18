@@ -24,7 +24,8 @@ SYSTEM = """You find nutrition facts for restaurant menu items using web search.
 The request may be one item or a whole order (for example a plate with a side and an entree, or a burger and fries). Split it into the distinct menu items a person would log separately, and return one entry per item, each for ONE standard serving.
 
 Rules:
-- Prefer the restaurant's own official nutrition page, PDF, or menu. Use a third-party site only if no official source is found, and say so.
+- Prefer the restaurant's own official nutrition page, PDF, or menu. Use a third-party site only if the official source cannot be read, and say so.
+- Many restaurant sites block automated readers or only show an interactive calculator. If you saw the restaurant's own nutrition page URL (even if you could not read the numbers from it), put it in "official_url" and say in notes that the official page could not be read. Never claim there is no official page when you saw one.
 - When the request leaves details open (size, crust, flavor, toppings, sauce), assume the restaurant's most common default and list each assumption briefly in "assumptions". Put the size or variant you chose in the item name, for example "Pepperoni Pizza, Large Hand Tossed". Set found to false only if you cannot tell which restaurant or what food is meant.
 - For items sold in pieces (pizza slices, wings, nuggets), report ONE piece unless the request names a count. For combos, use the restaurant's own definition of what the combo contains, and return each component separately.
 - Copy numbers from the page. Never invent, average, or guess them. If you cannot find reliable numbers for an item, leave it out and mention that in meal_note.
@@ -36,7 +37,7 @@ Rules:
   {"found": bool, "meal_note": string,
    "items": [{"name": string, "restaurant": string, "serving_desc": string, "calories": number,
               "protein_g": number, "carbs_g": number, "fat_g": number, "source_url": string,
-              "source_quote": string, "confidence": "official"|"third_party"|"estimate", "notes": string,
+              "source_quote": string, "official_url": string, "confidence": "official"|"third_party"|"estimate", "notes": string,
               "assumptions": [string], "other_values": [{"calories": number, "source": string}]}]}"""
 
 
@@ -55,6 +56,7 @@ class Item(BaseModel):
     fat_g: float = Field(default=0, ge=0, le=500)
     source_url: str = ""
     source_quote: str = ""
+    official_url: str = ""
     confidence: Literal["official", "third_party", "estimate"] = "estimate"
     notes: str = ""
     assumptions: list[str] = Field(default_factory=list, max_length=8)

@@ -82,7 +82,7 @@ export default function RestaurantModal({ items, mode, lookupId, mealNote, onDon
           if (item.consistent === false) warnings.push('The calories don’t match the macros, so one of them may be wrong.')
           if (mode === 'lookup' && item.quote_matches === false) warnings.push('The quoted text doesn’t show the calorie number. Check the source link.')
           if (confidence === 'estimate') warnings.push('This is an estimate, not an official number.')
-          if (confidence === 'third_party') warnings.push('This came from a third-party site, not the restaurant itself.')
+          if (confidence === 'third_party') warnings.push('This came from a third-party site, not the restaurant itself. Many restaurants block automated access to their own pages, so we often can’t read them.')
           const note = item.notes || item.estimate_note
           return (
             <section key={i} className={include[i] ? 'itemcard' : 'itemcard off'}>
@@ -128,6 +128,12 @@ export default function RestaurantModal({ items, mode, lookupId, mealNote, onDon
                   {item.source_quote && <blockquote className="quote">“{item.source_quote}”</blockquote>}
                   {item.source_url && (
                     <a className="srclink" href={item.source_url} target="_blank" rel="noreferrer noopener">Open the source page ↗</a>
+                  )}
+                  {confidence !== 'official' && (
+                    <a className="srclink" target="_blank" rel="noreferrer noopener"
+                      href={item.official_url || `https://www.google.com/search?q=${encodeURIComponent(`${item.restaurant ?? ''} ${item.name} nutrition information official`)}`}>
+                      {item.official_url ? 'Open the restaurant’s own nutrition page ↗' : 'Check the restaurant’s official numbers ↗'}
+                    </a>
                   )}
                   {note && <p className="note">{note}</p>}
                   {warnings.map((w) => <p key={w} className="warn">⚠ {w}</p>)}

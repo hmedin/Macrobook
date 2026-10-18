@@ -69,6 +69,8 @@ def _notes(item: dict) -> str | None:
     parts = [item.get("notes") or ""]
     if item.get("assumptions"):
         parts.append("Assumed: " + "; ".join(item["assumptions"]))
+    if item.get("official_url") and item.get("official_url") != item.get("source_url"):
+        parts.append("Official page: " + item["official_url"])
     return " ".join(p for p in parts if p).strip() or None
 
 
