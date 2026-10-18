@@ -13,7 +13,6 @@ export function LegalLinks() {
 // Permanently deletes the account and everything tied to it. Requires typing DELETE.
 export default function DangerZone() {
   const [text, setText] = useState('')
-  const [removeLocal, setRemoveLocal] = useState(true)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
 
@@ -21,7 +20,7 @@ export default function DangerZone() {
     setBusy(true); setErr('')
     try {
       await api('/account', { method: 'DELETE', body: JSON.stringify({ confirm: text }) })
-      if (removeLocal) await deleteAllPdfs().catch(() => {})  // the app's hidden browser copies, not the user's own files
+      await deleteAllPdfs().catch(() => {})  // the app's hidden browser copies, never the user's own files
       try { localStorage.clear() } catch { /* private mode */ }
       await supabase.auth.signOut({ scope: 'local' })
       window.location.href = '/'
@@ -36,13 +35,9 @@ export default function DangerZone() {
         <summary className="dangersum">Delete my account and data</summary>
         <p className="note">
           This permanently deletes your profile, weights, food and exercise logs, foods you added, goal history,
-          and your imported cookbook data from our servers. It can’t be undone. The original PDF files you imported are
-          never touched.
+          and your imported cookbook data from our servers, and clears the cookbook copies the app saved in this browser.
+          It can’t be undone. The original PDF files you imported are never touched.
         </p>
-        <label className="row">
-          <input type="checkbox" checked={removeLocal} onChange={(e) => setRemoveLocal(e.target.checked)} />
-          Also remove the cookbook copies the app saved in this browser (frees storage)
-        </label>
         <label>Type <b>DELETE</b> to confirm
           <input value={text} onChange={(e) => setText(e.target.value)} autoComplete="off" />
         </label>
