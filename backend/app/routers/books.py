@@ -250,7 +250,7 @@ def verify_food(food_id: int, uid: str = Depends(current_user_id)):
     with db.conn() as c:
         ok = c.execute(
             """select 1 from foods f where f.id = %(fid)s and
-               (f.owner_id = %(uid)s or f.source_type = 'restaurant'
+               (f.owner_id = %(uid)s or f.source_type in ('restaurant', 'basic')
                 or exists (select 1 from user_books ub where ub.book_id = f.book_id and ub.user_id = %(uid)s))""",
             {"fid": food_id, "uid": uid},
         ).fetchone()

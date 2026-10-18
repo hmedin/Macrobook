@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from .. import db
 from ..auth import current_user_id
-from ..services import goals, servings as portions
+from ..services import basic_foods, goals, servings as portions
 
 router = APIRouter()
 
@@ -235,31 +235,55 @@ def create_food(f: FoodIn, uid: str = Depends(current_user_id)):
     return {"id": row["id"]}
 
 
-@router.get("/foods/search")
-def search_foods(q: str, uid: str = Depends(current_user_id)):
-    """Unified autocomplete across the user's custom foods, their books, and the restaurant cache."""
-    q = q.strip()
-    if len(q) < 2:
-        return []
-    with db.conn() as c:
-        rows = c.execute(
-            """select f.id, f.name, f.source_type, f.restaurant, b.title as book_title, f.serving_desc,
-                      f.calories, f.protein_g, f.carbs_g, f.fat_g, f.is_estimate, f.source_url, f.source_quote, f.estimate_note, f.source_page, f.book_id, b.file_hash,
+def _patterns(t: str) -> list[str]:
+    """SQL ILIKE patterns for a search word, so plurals still match ("eggs" finds "Egg, whole, raw")."""
+    pats = {f"%{t}%"}
+    if len(t) > 3 and t.endswith("s"):
+        pats.add(f"%{t[:-1]}%")
+    if len(t) > 4 and t.endswith("es"):
+        pats.add(f"%{t[:-2]}%")
+    return sorted(pats)
+
+
+FOOD_SELECT = """select f.id, f.name, f.source_type, f.restaurant, b.title as book_title, f.serving_desc,
+                      f.calories, f.protein_g, f.carbs_g, f.fat_g, f.is_estimate, f.source_url, f.source_quote,
+                      f.estimate_note, f.source_page, f.book_id, b.file_hash, f.portions,
                       f.is_batch, f.book_servings, fp.servings as user_servings, fp.total_weight_g as user_total_weight_g,
                       (v.user_id is not null) as verified
                from foods f
                left join books b on b.id = f.book_id
                left join food_verifications v on v.food_id = f.id and v.user_id = %(uid)s
-               left join food_prefs fp on fp.food_id = f.id and fp.user_id = %(uid)s
-               where f.name ilike %(like)s
+               left join food_prefs fp on fp.food_id = f.id and fp.user_id = %(uid)s"""
+
+
+@router.get("/foods/search")
+def search_foods(q: str, uid: str = Depends(current_user_id)):
+    """Unified autocomplete: the user's own foods and cookbooks first, then restaurants, then basic foods (USDA)."""
+    q = q.strip()
+    toks = basic_foods.tokens(q)
+    if len(q) < 2 or not toks:
+        return []
+    params: dict = {"uid": uid}
+    conds = []
+    for i, t in enumerate(toks):
+        params[f"t{i}"] = _patterns(t)
+        conds.append(f"f.name ilike any (%(t{i})s)")
+    where = " and ".join(conds)
+    with db.conn() as c:
+        mine = c.execute(
+            f"""{FOOD_SELECT}
+               where {where} and f.source_type <> 'basic'
                  and (f.owner_id = %(uid)s
-                      or f.source_type = 'restaurant'
+                      or f.source_type in ('restaurant', 'basic')
                       or exists (select 1 from user_books ub where ub.book_id = f.book_id and ub.user_id = %(uid)s))
                order by (f.owner_id = %(uid)s) desc, length(f.name)
-               limit 25""",
-            {"uid": uid, "like": f"%{q}%"},
+               limit 20""",
+            params,
         ).fetchall()
-    return rows
+        candidates = c.execute(
+            f"{FOOD_SELECT} where {where} and f.source_type = 'basic' limit 300", params
+        ).fetchall()
+    return mine + basic_foods.rank(candidates, q, 10)
 
 
 # ---------- Logging ----------
@@ -268,7 +292,8 @@ class LogIn(BaseModel):
     date: date
     meal_slot: Literal["breakfast", "lunch", "dinner", "snack"] = "snack"
     food_id: int | None = None
-    servings: float = Field(default=1, gt=0, le=50)  # number of portions eaten
+    servings: float = Field(default=1, gt=0, le=200)  # number of portions eaten (basic foods: grams / 100)
+    label: str | None = Field(default=None, max_length=60)  # shown after the name, e.g. "2 large" or "150 g"
     split: float | None = Field(default=None, gt=0, le=200)  # portions the recipe is divided into (this log only)
     # For one-off entries with no saved food:
     name: str | None = None
@@ -284,7 +309,7 @@ def add_log(l: LogIn, uid: str = Depends(current_user_id)):
         if l.food_id is not None:
             f = c.execute(
                 """select f.* from foods f where f.id = %(fid)s and
-                   (f.owner_id = %(uid)s or f.source_type = 'restaurant'
+                   (f.owner_id = %(uid)s or f.source_type in ('restaurant', 'basic')
                     or exists (select 1 from user_books ub where ub.book_id = f.book_id and ub.user_id = %(uid)s))""",
                 {"fid": l.food_id, "uid": uid},
             ).fetchone()
@@ -300,7 +325,7 @@ def add_log(l: LogIn, uid: str = Depends(current_user_id)):
             )
             if port is None:
                 raise HTTPException(409, "This recipe is a whole batch. Say how many servings it makes.")
-            name, cal = f["name"], port["calories"]
+            name, cal = (f"{f['name']} ({l.label})" if l.label else f["name"]), port["calories"]
             p, cb, ft, est = port["protein_g"], port["carbs_g"], port["fat_g"], f["is_estimate"]
         else:
             if not l.name or l.calories is None:
@@ -325,7 +350,7 @@ def set_split(food_id: int, b: SplitIn, uid: str = Depends(current_user_id)):
     with db.conn() as c:
         ok = c.execute(
             """select 1 from foods f where f.id = %(fid)s and
-               (f.owner_id = %(uid)s or f.source_type = 'restaurant'
+               (f.owner_id = %(uid)s or f.source_type in ('restaurant', 'basic')
                 or exists (select 1 from user_books ub where ub.book_id = f.book_id and ub.user_id = %(uid)s))""",
             {"fid": food_id, "uid": uid},
         ).fetchone()
@@ -348,7 +373,7 @@ def set_total_weight(food_id: int, b: WeightIn, uid: str = Depends(current_user_
     with db.conn() as c:
         ok = c.execute(
             """select 1 from foods f where f.id = %(fid)s and
-               (f.owner_id = %(uid)s or f.source_type = 'restaurant'
+               (f.owner_id = %(uid)s or f.source_type in ('restaurant', 'basic')
                 or exists (select 1 from user_books ub where ub.book_id = f.book_id and ub.user_id = %(uid)s))""",
             {"fid": food_id, "uid": uid},
         ).fetchone()

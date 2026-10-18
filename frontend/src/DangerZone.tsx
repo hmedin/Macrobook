@@ -6,6 +6,7 @@ export function LegalLinks() {
   return (
     <p className="note legal">
       <a href="/privacy.html" target="_blank" rel="noopener noreferrer">Privacy policy</a>
+      {' · '}Basic food data: USDA FoodData Central
     </p>
   )
 }

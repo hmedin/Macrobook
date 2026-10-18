@@ -6,6 +6,7 @@ import ServingSheet from '../ServingSheet'
 import InstallHelp from '../InstallHelp'
 import RestaurantModal from '../RestaurantModal'
 import MealSheet from '../MealSheet'
+import BasicSheet from '../BasicSheet'
 
 const SLOTS = ['breakfast', 'lunch', 'dinner', 'snack'] as const
 type Slot = (typeof SLOTS)[number]
@@ -68,7 +69,7 @@ export default function Today({ profile }: { profile: any }) {
     setPick({ slot, food })
   }
 
-  async function confirmPick(amount: number, split: number | null, remember: boolean) {
+  async function confirmPick(amount: number, split: number | null, remember: boolean, label?: string) {
     if (!pick) return
     const { slot, food } = pick
     if (remember && split) {
@@ -76,7 +77,7 @@ export default function Today({ profile }: { profile: any }) {
     }
     await api('/logs', {
       method: 'POST',
-      body: JSON.stringify({ date: day, meal_slot: slot, food_id: food.id, servings: amount, split: split ?? undefined }),
+      body: JSON.stringify({ date: day, meal_slot: slot, food_id: food.id, servings: amount, split: split ?? undefined, label }),
     })
     setPick(null); setQ(''); setResults([]); load()
   }
@@ -251,8 +252,8 @@ export default function Today({ profile }: { profile: any }) {
                     <button key={r.id} className="result" onClick={() => logFood(s, r)}>
                       <span>{r.name}</span>
                       <small>
-                        {r.source_type === 'recipe' ? r.book_title : r.source_type === 'restaurant' ? r.restaurant : 'My food'}
-                        {' · '}{Math.round(r.calories)} kcal{r.is_estimate ? ' · estimate' : ''}{r.verified ? ' · ✓' : ''}
+                        {r.source_type === 'recipe' ? r.book_title : r.source_type === 'restaurant' ? r.restaurant : r.source_type === 'basic' ? 'Basic food (USDA)' : 'My food'}
+                        {' · '}{Math.round(r.calories)} kcal{r.source_type === 'basic' ? ' per 100 g' : ''}{r.is_estimate ? ' · estimate' : ''}{r.verified ? ' · ✓' : ''}
                       </small>
                     </button>
                   ))}
@@ -347,7 +348,12 @@ export default function Today({ profile }: { profile: any }) {
       {verify && <VerifyModal food={verify.food} onDone={afterVerify} onCancel={() => setVerify(null)} />}
       {rcheck && <RestaurantModal items={rcheck.items} mode={rcheck.mode} lookupId={rcheck.lookupId} mealNote={rcheck.mealNote} onDone={afterRestaurant} onCancel={() => setRcheck(null)} />}
       {meal && <MealSheet foods={meal.foods} slot={meal.slot} onConfirm={confirmMeal} onCancel={() => setMeal(null)} />}
-      {pick && <ServingSheet food={pick.food} slot={pick.slot} onConfirm={confirmPick} onCancel={() => setPick(null)} />}
+      {pick && pick.food.source_type === 'basic' && (
+        <BasicSheet food={pick.food} slot={pick.slot} onConfirm={(servings, label) => confirmPick(servings, null, false, label)} onCancel={() => setPick(null)} />
+      )}
+      {pick && pick.food.source_type !== 'basic' && (
+        <ServingSheet food={pick.food} slot={pick.slot} onConfirm={confirmPick} onCancel={() => setPick(null)} />
+      )}
     </div>
   )
 }

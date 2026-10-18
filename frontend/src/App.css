@@ -313,3 +313,6 @@ html, body, #root { height: 100%; }
 /* iOS date fields: stay inside their card, left-aligned like other inputs */
 input[type="date"] { -webkit-appearance: none; appearance: none; display: block; min-width: 0; text-align: left; min-height: 46px; }
 input[type="date"]::-webkit-date-and-time-value { text-align: left; }
+
+/* basic foods */
+.amountrow { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; }
