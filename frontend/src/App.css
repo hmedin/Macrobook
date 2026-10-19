@@ -225,6 +225,10 @@ button:disabled { opacity: .6; cursor: default; }
 .parsed p { margin: 0; }
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .filebtn { display: inline-block; margin-top: 8px; background: var(--green); color: #fff; padding: 10px 16px; border-radius: 12px; font-weight: 600; cursor: pointer; }
+/* keep the confirm button on screen: pinned to the bottom of the modal, page image capped on phones */
+.modalactions { position: sticky; bottom: -18px; display: flex; flex-direction: column; gap: 6px; background: var(--card);
+  margin: 0 -18px -18px; padding: 10px 18px 14px; border-radius: 0 0 20px 20px; box-shadow: 0 -8px 12px -8px rgba(0,0,0,.15); }
+@media (max-width: 799px) { .origin { max-height: 28vh; max-height: 28dvh; overflow-y: auto; align-items: flex-start; } }
 @media (min-width: 800px) { .compare { grid-template-columns: 1.1fr 1fr; align-items: start; } .origin { position: sticky; top: 0; } }
 
 /* serving sheet */

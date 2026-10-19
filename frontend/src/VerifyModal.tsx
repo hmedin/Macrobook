@@ -123,8 +123,10 @@ export default function VerifyModal({ food, onDone, onCancel }: {
             </div>
             {changed && <p className="warn">You changed the numbers. They’ll be saved as your own copy, and the original stays untouched.</p>}
             {err && <p className="error">{err}</p>}
-            <button disabled={busy} onClick={confirm}>{changed ? 'Save my version & log it' : 'Looks right, log it'}</button>
-            <button className="link" onClick={onCancel}>Cancel</button>
+            <div className="modalactions">
+              <button disabled={busy} onClick={confirm}>{changed ? 'Save my version & log it' : 'Looks right, log it'}</button>
+              <button className="link" onClick={onCancel}>Cancel</button>
+            </div>
           </div>
         </div>
       </div>
